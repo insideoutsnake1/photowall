@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Photo Wall · Send</title>
+<link rel="manifest" href="manifest-sender.json">
+<meta name="theme-color" content="#8b6914">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Send to Wall">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Special+Elite&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -152,6 +159,15 @@
 
   #conn-dot.on  { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
   #conn-dot.off { background: #e74c3c; }
+
+  #change-conn {
+    margin-left: 6px;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    cursor: pointer;
+    color: #999;
+  }
+  #change-conn:hover { color: var(--accent); }
 
   .err-box {
     display: none;
@@ -377,6 +393,108 @@
   }
 
   .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── Wall switcher ── */
+  #wall-switcher {
+    max-width: 480px;
+    width: calc(100% - 32px);
+    margin: 0 auto 20px;
+    display: none;
+  }
+
+  #wall-switcher-btn {
+    width: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    border: none;
+    padding: 11px 16px;
+    font-family: 'Special Elite', cursive;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    box-shadow: 2px 3px 12px rgba(0,0,0,0.3);
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  #wall-switcher-btn:hover { background: #fffdf5; }
+
+  #wall-menu {
+    margin-top: 6px;
+    background: var(--paper);
+    box-shadow: 3px 5px 18px rgba(0,0,0,0.4);
+    border-radius: 2px;
+    padding: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  #wall-menu.hidden { display: none; }
+
+  .wall-item {
+    padding: 9px 12px;
+    font-family: 'Caveat', cursive;
+    font-size: 17px;
+    color: var(--ink);
+    cursor: pointer;
+    border-radius: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wall-item:hover { background: rgba(200,169,110,0.25); }
+
+  .wall-item.active {
+    background: rgba(139,105,20,0.18);
+    font-weight: 600;
+  }
+
+  .wall-loading {
+    padding: 9px 12px;
+    font-size: 14px;
+    color: #aaa;
+    font-family: 'Caveat', cursive;
+  }
+
+  .wall-new {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1.5px dashed var(--cork);
+  }
+
+  .wall-new input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    font-family: 'Caveat', cursive;
+    font-size: 15px;
+    border: 1.5px solid var(--cork);
+    background: #fffdf5;
+    color: var(--ink);
+    outline: none;
+    border-radius: 2px;
+    margin-bottom: 0;
+  }
+
+  .wall-new button {
+    padding: 8px 12px;
+    background: var(--accent);
+    color: var(--paper);
+    border: none;
+    font-family: 'Special Elite', cursive;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+
+  .wall-new button:hover { background: #6b4f0f; }
 </style>
 </head>
 <body>
@@ -400,6 +518,19 @@
   <div id="conn-status">
     <div id="conn-dot"></div>
     <span id="conn-text">not connected</span>
+    <span id="change-conn" onclick="resetConnection()" style="display:none;">change</span>
+  </div>
+</div>
+
+<!-- Wall switcher -->
+<div id="wall-switcher">
+  <button id="wall-switcher-btn" onclick="toggleWallMenu()">📌 Sending to: <span id="room-label">main</span> ▾</button>
+  <div id="wall-menu" class="hidden">
+    <div id="wall-list"></div>
+    <div class="wall-new">
+      <input id="new-wall-input" placeholder="new wall name" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <button onclick="createWall()">+ Create</button>
+    </div>
   </div>
 </div>
 
@@ -438,6 +569,7 @@
 
 <script>
   let db, roomRef, currentDataUrl = null, connected = false;
+  let currentRoom = 'main';
 
   // ── Drag & drop ──
   const dz = document.getElementById('dropzone');
@@ -588,7 +720,8 @@
       });
 
       db = firebase.database();
-      roomRef = db.ref('walls/' + room + '/photos');
+      currentRoom = room;
+      roomRef = db.ref('walls/' + currentRoom + '/photos');
 
       db.ref('.info/connected').on('value', function(snap) {
         const dot  = document.getElementById('conn-dot');
@@ -596,9 +729,13 @@
         if (snap.val()) {
           connected = true;
           dot.className = 'on';
-          text.textContent = 'connected · ' + room;
+          text.textContent = 'connected · ' + currentRoom;
           document.getElementById('dropzone').style.display = 'block';
           document.getElementById('config-card').style.opacity = '0.6';
+          document.getElementById('wall-switcher').style.display = 'block';
+          document.getElementById('room-label').textContent = currentRoom;
+          document.getElementById('change-conn').style.display = 'inline';
+          saveConfig();
         } else {
           connected = false;
           dot.className = 'off';
@@ -613,6 +750,113 @@
       errBox.style.display = 'block';
     }
   }
+
+  // ── Remember Firebase config so the page reconnects automatically ──
+  const STORAGE_KEY = 'photoWallSenderConfig';
+
+  function saveConfig() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        apiKey: document.getElementById('s-apikey').value.trim(),
+        projectId: document.getElementById('s-projectid').value.trim(),
+        room: currentRoom,
+      }));
+    } catch (e) {}
+  }
+
+  function loadSavedConfig() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+      if (saved && saved.apiKey && saved.projectId) {
+        document.getElementById('s-apikey').value = saved.apiKey;
+        document.getElementById('s-projectid').value = saved.projectId;
+        document.getElementById('s-room').value = saved.room || 'main';
+        connectSender();
+      }
+    } catch (e) {}
+  }
+
+  function resetConnection() {
+    if (!confirm('Disconnect and clear saved Firebase login?')) return;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    location.reload();
+  }
+
+  // Register service worker (lets this page be installed as an app)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function() {});
+  }
+
+  // Try to auto-connect on load using saved credentials
+  loadSavedConfig();
+
+  function switchRoom(newRoom) {
+    if (!db || newRoom === currentRoom) return;
+    currentRoom = newRoom;
+    roomRef = db.ref('walls/' + currentRoom + '/photos');
+    document.getElementById('room-label').textContent = currentRoom;
+
+    const text = document.getElementById('conn-text');
+    if (connected) {
+      text.textContent = 'connected · ' + currentRoom;
+      saveConfig();
+    }
+  }
+
+  function toggleWallMenu() {
+    const menu = document.getElementById('wall-menu');
+    if (menu.classList.contains('hidden')) {
+      refreshWallList();
+      menu.classList.remove('hidden');
+    } else {
+      menu.classList.add('hidden');
+    }
+  }
+
+  function refreshWallList() {
+    const listEl = document.getElementById('wall-list');
+    listEl.innerHTML = '<div class="wall-loading">loading…</div>';
+    if (!db) return;
+
+    db.ref('walls').once('value').then(function(snap) {
+      const val = snap.val();
+      const rooms = val ? Object.keys(val) : [];
+      if (rooms.indexOf(currentRoom) === -1) rooms.push(currentRoom);
+      rooms.sort();
+
+      listEl.innerHTML = '';
+      rooms.forEach(function(r) {
+        const item = document.createElement('div');
+        item.className = 'wall-item' + (r === currentRoom ? ' active' : '');
+        item.textContent = r;
+        item.onclick = function() {
+          switchRoom(r);
+          toggleWallMenu();
+        };
+        listEl.appendChild(item);
+      });
+    }).catch(function() {
+      listEl.innerHTML = '<div class="wall-loading">error loading walls</div>';
+    });
+  }
+
+  function createWall() {
+    const input = document.getElementById('new-wall-input');
+    const name = input.value.trim();
+    if (!name) return;
+    switchRoom(name);
+    input.value = '';
+    toggleWallMenu();
+  }
+
+  // Close the wall-switcher dropdown when tapping outside it
+  document.addEventListener('pointerdown', function(e) {
+    const switcher = document.getElementById('wall-switcher');
+    const menu = document.getElementById('wall-menu');
+    if (!menu.classList.contains('hidden') && !switcher.contains(e.target)) {
+      menu.classList.add('hidden');
+    }
+  });
 
   function showToast(msg) {
     const t = document.getElementById('toast');

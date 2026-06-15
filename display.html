@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Photo Wall · Display</title>
+<link rel="manifest" href="manifest-display.json">
+<meta name="theme-color" content="#8b6914">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Photo Wall">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=Special+Elite&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -365,9 +372,120 @@
 
   #clear-wall:hover { color: rgba(255,90,80,0.85); }
 
+  #reset-conn {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    color: rgba(255,255,255,0.4);
+    transition: color 0.2s;
+  }
+
+  #reset-conn:hover { color: rgba(255,255,255,0.8); }
+
   #hint-text {
     color: rgba(255,255,255,0.25);
   }
+
+  /* ── Wall switcher ── */
+  #wall-switcher {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 60;
+    font-family: 'Caveat', cursive;
+  }
+
+  #wall-switcher-btn {
+    background: var(--paper);
+    color: #3a2a10;
+    border: none;
+    padding: 8px 16px;
+    font-family: 'Special Elite', cursive;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    box-shadow: 2px 3px 10px rgba(0,0,0,0.35);
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  #wall-switcher-btn:hover { background: #fffdf5; }
+
+  #wall-menu {
+    margin-top: 6px;
+    background: var(--paper);
+    box-shadow: 3px 5px 18px rgba(0,0,0,0.4);
+    border-radius: 2px;
+    padding: 8px;
+    min-width: 180px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+
+  #wall-menu.hidden { display: none; }
+
+  .wall-item {
+    padding: 7px 10px;
+    font-family: 'Caveat', cursive;
+    font-size: 17px;
+    color: #3a2a10;
+    cursor: pointer;
+    border-radius: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wall-item:hover { background: rgba(200,169,110,0.25); }
+
+  .wall-item.active {
+    background: rgba(139,105,20,0.18);
+    font-weight: 600;
+  }
+
+  .wall-loading {
+    padding: 7px 10px;
+    font-size: 14px;
+    color: #aaa;
+    font-family: 'Caveat', cursive;
+  }
+
+  .wall-new {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1.5px dashed var(--cork);
+  }
+
+  .wall-new input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    font-family: 'Caveat', cursive;
+    font-size: 15px;
+    border: 1.5px solid var(--cork);
+    background: #fffdf5;
+    color: #3a2a10;
+    outline: none;
+    border-radius: 2px;
+  }
+
+  .wall-new button {
+    padding: 6px 10px;
+    background: #8b6914;
+    color: var(--paper);
+    border: none;
+    font-family: 'Special Elite', cursive;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+
+  .wall-new button:hover { background: #6b4f0f; }
 </style>
 </head>
 <body>
@@ -398,6 +516,18 @@
   </div>
 </div>
 
+<!-- Wall switcher -->
+<div id="wall-switcher" style="display:none;">
+  <button id="wall-switcher-btn" onclick="toggleWallMenu()">📌 <span id="room-label">main</span> ▾</button>
+  <div id="wall-menu" class="hidden">
+    <div id="wall-list"></div>
+    <div class="wall-new">
+      <input id="new-wall-input" placeholder="new wall name" />
+      <button onclick="createWall()">+ Create</button>
+    </div>
+  </div>
+</div>
+
 <!-- Empty state -->
 <div id="empty">
   <div class="board-title">📌 THE WALL</div>
@@ -410,6 +540,7 @@
 <!-- Status -->
 <div id="status">
   <span id="hint-text">drag to move · hover for ×</span>
+  <span id="reset-conn" onclick="resetConnection()">⚙ reset connection</span>
   <span id="clear-wall" onclick="clearWall()">🗑 clear wall</span>
   <div id="status-dot"></div>
   <span id="status-text">not connected</span>
@@ -425,6 +556,8 @@
 
   let photoCount = 0;
   let photosRef = null;
+  let db = null;
+  let currentRoom = 'main';
 
   function startDisplay() {
     const errBox = document.getElementById('err-box');
@@ -449,26 +582,16 @@
         storageBucket: projectId + '.appspot.com',
       });
 
-      const db = firebase.database();
-      photosRef = db.ref('walls/' + room + '/photos');
+      db = firebase.database();
+      currentRoom = room;
+      photosRef = db.ref('walls/' + currentRoom + '/photos');
 
       document.getElementById('config-overlay').style.display = 'none';
       document.getElementById('status-text').textContent = 'connecting…';
+      document.getElementById('room-label').textContent = currentRoom;
+      document.getElementById('wall-switcher').style.display = 'block';
 
-      // Listen for new photos
-      photosRef.on('child_added', function(snapshot) {
-        const data = snapshot.val();
-        if (data && data.dataUrl) {
-          addPolaroid(snapshot.key, data.dataUrl, data.caption || '', data.position || null);
-        }
-      }, function(error) {
-        showFatalError('Database error: ' + error.message);
-      });
-
-      // Listen for removed photos
-      photosRef.on('child_removed', function(snapshot) {
-        removePolaroid(snapshot.key);
-      });
+      attachPhotoListeners();
 
       // Connection state
       db.ref('.info/connected').on('value', function(snap) {
@@ -476,7 +599,8 @@
         const text = document.getElementById('status-text');
         if (snap.val()) {
           dot.className = 'connected';
-          text.textContent = 'live · ' + room;
+          text.textContent = 'live · ' + currentRoom;
+          saveConfig();
         } else {
           dot.className = 'error';
           text.textContent = 'reconnecting…';
@@ -486,6 +610,137 @@
       errBox.textContent = 'Error: ' + e.message;
       errBox.style.display = 'block';
     }
+  }
+
+  // ── Remember Firebase config so the display reconnects automatically ──
+  const STORAGE_KEY = 'photoWallDisplayConfig';
+
+  function saveConfig() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        apiKey: document.getElementById('f-apikey').value.trim(),
+        projectId: document.getElementById('f-projectid').value.trim(),
+        room: currentRoom,
+      }));
+    } catch (e) {}
+  }
+
+  function loadSavedConfig() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+      if (saved && saved.apiKey && saved.projectId) {
+        document.getElementById('f-apikey').value = saved.apiKey;
+        document.getElementById('f-projectid').value = saved.projectId;
+        document.getElementById('f-room').value = saved.room || 'main';
+        startDisplay();
+      }
+    } catch (e) {}
+  }
+
+  function resetConnection() {
+    if (!confirm('Disconnect and clear saved Firebase login? The page will reload.')) return;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    location.reload();
+  }
+
+  // Register service worker (lets this page be installed as an app)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function() {});
+  }
+
+  // Try to auto-connect on load using saved credentials
+  loadSavedConfig();
+
+  function attachPhotoListeners() {
+    // Listen for new photos
+    photosRef.on('child_added', function(snapshot) {
+      const data = snapshot.val();
+      if (data && data.dataUrl) {
+        addPolaroid(snapshot.key, data.dataUrl, data.caption || '', data.position || null);
+      }
+    }, function(error) {
+      showFatalError('Database error: ' + error.message);
+    });
+
+    // Listen for removed photos
+    photosRef.on('child_removed', function(snapshot) {
+      removePolaroid(snapshot.key);
+    });
+  }
+
+  function switchRoom(newRoom) {
+    if (!db || newRoom === currentRoom) return;
+
+    // Detach listeners from the old room
+    if (photosRef) {
+      photosRef.off('child_added');
+      photosRef.off('child_removed');
+    }
+
+    // Clear the current wall
+    document.getElementById('wall').innerHTML = '';
+    photoCount = 0;
+    document.getElementById('empty').classList.remove('hidden');
+
+    // Switch to the new room
+    currentRoom = newRoom;
+    photosRef = db.ref('walls/' + currentRoom + '/photos');
+    document.getElementById('room-label').textContent = currentRoom;
+
+    const dot  = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    if (dot.className === 'connected') {
+      text.textContent = 'live · ' + currentRoom;
+      saveConfig();
+    }
+
+    attachPhotoListeners();
+  }
+
+  function toggleWallMenu() {
+    const menu = document.getElementById('wall-menu');
+    if (menu.classList.contains('hidden')) {
+      refreshWallList();
+      menu.classList.remove('hidden');
+    } else {
+      menu.classList.add('hidden');
+    }
+  }
+
+  function refreshWallList() {
+    const listEl = document.getElementById('wall-list');
+    listEl.innerHTML = '<div class="wall-loading">loading…</div>';
+    if (!db) return;
+
+    db.ref('walls').once('value').then(function(snap) {
+      const val = snap.val();
+      const rooms = val ? Object.keys(val) : [];
+      if (rooms.indexOf(currentRoom) === -1) rooms.push(currentRoom);
+      rooms.sort();
+
+      listEl.innerHTML = '';
+      rooms.forEach(function(r) {
+        const item = document.createElement('div');
+        item.className = 'wall-item' + (r === currentRoom ? ' active' : '');
+        item.textContent = r;
+        item.onclick = function() {
+          switchRoom(r);
+          toggleWallMenu();
+        };
+        listEl.appendChild(item);
+      });
+    }).catch(function(err) {
+      listEl.innerHTML = '<div class="wall-loading">error loading walls</div>';
+    });
+  }
+
+  function createWall() {
+    const input = document.getElementById('new-wall-input');
+    const name = input.value.trim();
+    if (!name) return;
+    switchRoom(name);
+    input.value = '';
+    toggleWallMenu();
   }
 
   function showFatalError(msg) {
@@ -652,6 +907,15 @@
 
     wall.appendChild(div);
   }
+
+  // Close the wall-switcher dropdown when clicking outside it
+  document.addEventListener('pointerdown', function(e) {
+    const switcher = document.getElementById('wall-switcher');
+    const menu = document.getElementById('wall-menu');
+    if (!menu.classList.contains('hidden') && !switcher.contains(e.target)) {
+      menu.classList.add('hidden');
+    }
+  });
 </script>
 </body>
 </html>
