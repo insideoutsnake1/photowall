@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Photo Wall · Display</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cork: #c8a96e;
+    --cork-dark: #a8884a;
+    --paper: #fdf6e3;
+    --shadow: rgba(0,0,0,0.35);
+    --pin-red: #c0392b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background-color: #8b6914;
+    background-image:
+      radial-gradient(ellipse at 20% 30%, rgba(180,130,60,0.4) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 70%, rgba(100,70,20,0.5) 0%, transparent 60%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='%23a07830'/%3E%3Ccircle cx='1' cy='1' r='0.6' fill='%23c8a040' opacity='0.4'/%3E%3Ccircle cx='3' cy='3' r='0.6' fill='%23805020' opacity='0.3'/%3E%3C/svg%3E");
+    min-height: 100vh;
+    overflow: hidden;
+    position: relative;
+    font-family: 'Caveat', cursive;
+  }
+
+  /* Cork board texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 3px,
+        rgba(0,0,0,0.03) 3px,
+        rgba(0,0,0,0.03) 4px
+      ),
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 3px,
+        rgba(0,0,0,0.03) 3px,
+        rgba(0,0,0,0.03) 4px
+      );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #wall {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+  }
+
+  /* ── Polaroid ── */
+  .polaroid {
+    position: absolute;
+    background: var(--paper);
+    padding: 10px 10px 36px 10px;
+    box-shadow: 3px 4px 18px var(--shadow), 0 1px 3px rgba(0,0,0,0.2);
+    cursor: grab;
+    touch-action: none;
+    transform-origin: center center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    will-change: transform;
+  }
+
+  .polaroid:hover {
+    box-shadow: 6px 10px 30px rgba(0,0,0,0.5);
+    z-index: 100 !important;
+  }
+
+  .polaroid.dragging {
+    cursor: grabbing;
+    transition: none;
+    box-shadow: 10px 18px 40px rgba(0,0,0,0.6);
+    z-index: 9999 !important;
+  }
+
+  /* ── Delete button ── */
+  .del-btn {
+    position: absolute;
+    top: -12px;
+    right: -12px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.35;
+    transition: opacity 0.2s, background 0.2s, transform 0.15s;
+    z-index: 20;
+    user-select: none;
+  }
+
+  .polaroid:hover .del-btn,
+  .del-btn:active {
+    opacity: 1;
+  }
+
+  .del-btn:hover {
+    background: var(--pin-red);
+    transform: scale(1.12);
+  }
+
+  /* ── Removal animation ── */
+  .polaroid.removing {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    opacity: 0;
+    transform: scale(0.4) rotate(25deg) !important;
+    pointer-events: none;
+  }
+
+  .polaroid img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #ddd;
+  }
+
+  .polaroid .caption {
+    position: absolute;
+    bottom: 6px;
+    left: 10px;
+    right: 10px;
+    text-align: center;
+    font-family: 'Caveat', cursive;
+    font-size: 13px;
+    color: #555;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── Pin ── */
+  .pin {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #e74c3c, #7b241c);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.3);
+    z-index: 10;
+  }
+
+  /* Pin variants */
+  .pin.blue   { background: radial-gradient(circle at 35% 35%, #3498db, #1a5276); }
+  .pin.green  { background: radial-gradient(circle at 35% 35%, #2ecc71, #1a6b3a); }
+  .pin.yellow { background: radial-gradient(circle at 35% 35%, #f1c40f, #9a7d0a); }
+  .pin.white  { background: radial-gradient(circle at 35% 35%, #ecf0f1, #aab7b8); }
+
+  /* ── Tape ── */
+  .tape {
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%) rotate(-2deg);
+    width: 48px;
+    height: 20px;
+    background: rgba(255, 230, 100, 0.55);
+    border: 1px solid rgba(200,180,60,0.3);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    z-index: 10;
+  }
+
+  /* ── Arrival animation ── */
+  @keyframes arrive {
+    0%   { opacity: 0; transform: var(--base-transform) scale(0.5) translateY(-60px); }
+    60%  { opacity: 1; transform: var(--base-transform) scale(1.05); }
+    100% { opacity: 1; transform: var(--base-transform) scale(1); }
+  }
+
+  .polaroid.arriving {
+    animation: arrive 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards;
+  }
+
+  /* ── Empty state ── */
+  #empty {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    pointer-events: none;
+    transition: opacity 0.8s ease;
+  }
+
+  #empty .board-title {
+    font-family: 'Special Elite', cursive;
+    font-size: clamp(28px, 5vw, 52px);
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.08em;
+    text-shadow: 1px 2px 6px rgba(0,0,0,0.4);
+    margin-bottom: 16px;
+  }
+
+  #empty .sub {
+    font-family: 'Caveat', cursive;
+    font-size: clamp(16px, 2.5vw, 24px);
+    color: rgba(255,255,255,0.35);
+    letter-spacing: 0.05em;
+  }
+
+  #empty.hidden { opacity: 0; }
+
+  /* ── Config overlay ── */
+  #config-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.82);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+
+  #config-box {
+    background: var(--paper);
+    padding: 40px 48px;
+    max-width: 520px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    border-radius: 2px;
+    position: relative;
+  }
+
+  #config-box::before {
+    content: '';
+    position: absolute;
+    top: -10px; left: 50%;
+    transform: translateX(-50%);
+    width: 60px; height: 22px;
+    background: rgba(255,230,100,0.6);
+    border: 1px solid rgba(200,180,60,0.3);
+  }
+
+  #config-box h2 {
+    font-family: 'Special Elite', cursive;
+    font-size: 26px;
+    color: #3a2a10;
+    margin-bottom: 8px;
+  }
+
+  #config-box p {
+    font-family: 'Caveat', cursive;
+    font-size: 16px;
+    color: #7a6040;
+    margin-bottom: 24px;
+    line-height: 1.5;
+  }
+
+  #config-box label {
+    font-family: 'Special Elite', cursive;
+    font-size: 12px;
+    color: #5a4020;
+    display: block;
+    margin-bottom: 6px;
+    letter-spacing: 0.06em;
+  }
+
+  #config-box input {
+    width: 100%;
+    padding: 10px 14px;
+    font-family: 'Caveat', cursive;
+    font-size: 16px;
+    border: 1.5px solid #c8a96e;
+    background: #fffdf5;
+    color: #3a2a10;
+    outline: none;
+    margin-bottom: 16px;
+    border-radius: 2px;
+  }
+
+  #config-box input:focus { border-color: #8b6914; }
+
+  #config-box button {
+    width: 100%;
+    padding: 12px;
+    background: #8b6914;
+    color: #fdf6e3;
+    font-family: 'Special Elite', cursive;
+    font-size: 16px;
+    border: none;
+    cursor: pointer;
+    letter-spacing: 0.08em;
+    border-radius: 2px;
+    transition: background 0.2s;
+  }
+
+  #config-box button:hover { background: #6b4f0f; }
+
+  #config-box .hint {
+    font-size: 12px;
+    color: #aaa;
+    margin-top: 16px;
+    text-align: center;
+    font-family: monospace;
+    line-height: 1.6;
+  }
+
+  #config-box .err {
+    display: none;
+    background: #f8d7da;
+    color: #842029;
+    border: 1px solid #f5c2c7;
+    padding: 10px 14px;
+    font-family: monospace;
+    font-size: 12px;
+    margin-bottom: 14px;
+    border-radius: 2px;
+    word-break: break-word;
+  }
+
+  /* ── Status dot ── */
+  #status {
+    position: fixed;
+    bottom: 16px;
+    right: 20px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'Caveat', cursive;
+    font-size: 13px;
+    color: rgba(255,255,255,0.45);
+  }
+
+  #status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #888;
+    transition: background 0.4s;
+  }
+
+  #status-dot.connected { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
+  #status-dot.error     { background: #e74c3c; }
+
+  #clear-wall {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    color: rgba(255,255,255,0.4);
+    transition: color 0.2s;
+  }
+
+  #clear-wall:hover { color: rgba(255,90,80,0.85); }
+
+  #hint-text {
+    color: rgba(255,255,255,0.25);
+  }
+</style>
+</head>
+<body>
+
+<!-- Config overlay -->
+<div id="config-overlay">
+  <div id="config-box">
+    <h2>📌 Photo Wall Display</h2>
+    <p>Paste your Firebase config to connect this display to your photo feed.</p>
+
+    <div class="err" id="err-box"></div>
+
+    <label>FIREBASE API KEY</label>
+    <input id="f-apikey" placeholder="AIzaSy..." />
+
+    <label>FIREBASE PROJECT ID</label>
+    <input id="f-projectid" placeholder="my-photo-wall-12345" />
+
+    <label>ROOM / CHANNEL NAME</label>
+    <input id="f-room" placeholder="main" value="main" />
+
+    <button onclick="startDisplay()">📺 Start Display</button>
+
+    <div class="hint">
+      Get these from Firebase Console → Project Settings → Your apps<br>
+      Keep this tab open fullscreen on your Chromebook
+    </div>
+  </div>
+</div>
+
+<!-- Empty state -->
+<div id="empty">
+  <div class="board-title">📌 THE WALL</div>
+  <div class="sub">waiting for photos…</div>
+</div>
+
+<!-- The wall -->
+<div id="wall"></div>
+
+<!-- Status -->
+<div id="status">
+  <span id="hint-text">drag to move · hover for ×</span>
+  <span id="clear-wall" onclick="clearWall()">🗑 clear wall</span>
+  <div id="status-dot"></div>
+  <span id="status-text">not connected</span>
+</div>
+
+<!-- Firebase compat SDK (works from file:// and plain <script> tags) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<script>
+  const PIN_COLORS = ['', 'blue', 'green', 'yellow', 'white'];
+  const FASTENERS = ['pin', 'pin', 'pin', 'tape']; // weighted toward pins
+
+  let photoCount = 0;
+  let photosRef = null;
+
+  function startDisplay() {
+    const errBox = document.getElementById('err-box');
+    errBox.style.display = 'none';
+
+    const apiKey    = document.getElementById('f-apikey').value.trim();
+    const projectId = document.getElementById('f-projectid').value.trim();
+    const room      = document.getElementById('f-room').value.trim() || 'main';
+
+    if (!apiKey || !projectId) {
+      errBox.textContent = 'Please fill in API Key and Project ID.';
+      errBox.style.display = 'block';
+      return;
+    }
+
+    try {
+      firebase.initializeApp({
+        apiKey,
+        authDomain: projectId + '.firebaseapp.com',
+        databaseURL: 'https://' + projectId + '-default-rtdb.firebaseio.com',
+        projectId,
+        storageBucket: projectId + '.appspot.com',
+      });
+
+      const db = firebase.database();
+      photosRef = db.ref('walls/' + room + '/photos');
+
+      document.getElementById('config-overlay').style.display = 'none';
+      document.getElementById('status-text').textContent = 'connecting…';
+
+      // Listen for new photos
+      photosRef.on('child_added', function(snapshot) {
+        const data = snapshot.val();
+        if (data && data.dataUrl) {
+          addPolaroid(snapshot.key, data.dataUrl, data.caption || '', data.position || null);
+        }
+      }, function(error) {
+        showFatalError('Database error: ' + error.message);
+      });
+
+      // Listen for removed photos
+      photosRef.on('child_removed', function(snapshot) {
+        removePolaroid(snapshot.key);
+      });
+
+      // Connection state
+      db.ref('.info/connected').on('value', function(snap) {
+        const dot  = document.getElementById('status-dot');
+        const text = document.getElementById('status-text');
+        if (snap.val()) {
+          dot.className = 'connected';
+          text.textContent = 'live · ' + room;
+        } else {
+          dot.className = 'error';
+          text.textContent = 'reconnecting…';
+        }
+      });
+    } catch (e) {
+      errBox.textContent = 'Error: ' + e.message;
+      errBox.style.display = 'block';
+    }
+  }
+
+  function showFatalError(msg) {
+    const overlay = document.getElementById('config-overlay');
+    const errBox = document.getElementById('err-box');
+    overlay.style.display = 'flex';
+    errBox.textContent = msg;
+    errBox.style.display = 'block';
+  }
+
+  function clearWall() {
+    if (!photosRef) return;
+    if (confirm('Remove ALL photos from the wall? This cannot be undone.')) {
+      photosRef.remove();
+    }
+  }
+
+  function removePolaroid(key) {
+    const el = document.querySelector('.polaroid[data-key="' + key + '"]');
+    if (!el) return;
+    el.classList.add('removing');
+    setTimeout(function() {
+      el.remove();
+      photoCount--;
+      if (photoCount <= 0) {
+        photoCount = 0;
+        document.getElementById('empty').classList.remove('hidden');
+      }
+    }, 320);
+  }
+
+  function addPolaroid(key, dataUrl, caption, position) {
+    photoCount++;
+    const wall = document.getElementById('wall');
+    const empty = document.getElementById('empty');
+
+    // Hide empty state
+    if (photoCount === 1) empty.classList.add('hidden');
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Randomize size (small, medium, large)
+    const sizes = [
+      { w: 160, h: 160 },
+      { w: 200, h: 200 },
+      { w: 240, h: 240 },
+      { w: 180, h: 220 },
+      { w: 220, h: 180 },
+    ];
+    const sz = sizes[Math.floor(Math.random() * sizes.length)];
+    const totalH = sz.h + 46; // img + bottom label
+    const totalW = sz.w + 20;
+
+    let left, top, rot;
+    const isNew = !position;
+
+    if (position) {
+      // Use the saved position (so reloads keep photos where you left them)
+      left = position.left;
+      top  = position.top;
+      rot  = position.rot;
+    } else {
+      // Random position with margin
+      const margin = 30;
+      left = margin + Math.random() * Math.max(0, vw - totalW - margin * 2);
+      top  = margin + Math.random() * Math.max(0, vh - totalH - margin * 2);
+      // Random rotation -12° to +12°
+      rot = (Math.random() - 0.5) * 24;
+    }
+
+    // Random fastener
+    const fastener = FASTENERS[Math.floor(Math.random() * FASTENERS.length)];
+    const pinColor = PIN_COLORS[Math.floor(Math.random() * PIN_COLORS.length)];
+
+    const div = document.createElement('div');
+    div.className = 'polaroid' + (isNew ? ' arriving' : '');
+    div.dataset.key = key;
+    div.style.cssText =
+      'left: ' + left + 'px;' +
+      'top: ' + top + 'px;' +
+      'width: ' + totalW + 'px;' +
+      'z-index: ' + (10 + photoCount) + ';' +
+      '--base-transform: rotate(' + rot + 'deg);' +
+      'transform: rotate(' + rot + 'deg);';
+
+    // Fastener
+    const fastenerEl = document.createElement('div');
+    if (fastener === 'tape') {
+      fastenerEl.className = 'tape';
+    } else {
+      fastenerEl.className = 'pin ' + pinColor;
+    }
+    div.appendChild(fastenerEl);
+
+    // Image
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.style.cssText = 'width: ' + sz.w + 'px; height: ' + sz.h + 'px;';
+    div.appendChild(img);
+
+    // Caption
+    if (caption) {
+      const cap = document.createElement('div');
+      cap.className = 'caption';
+      cap.textContent = caption;
+      div.appendChild(cap);
+    }
+
+    // Delete button
+    const delBtn = document.createElement('div');
+    delBtn.className = 'del-btn';
+    delBtn.textContent = '×';
+    delBtn.title = 'Remove photo';
+    delBtn.addEventListener('pointerdown', function(e) { e.stopPropagation(); });
+    delBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (confirm('Remove this photo from the wall?')) {
+        photosRef.child(key).remove();
+      }
+    });
+    div.appendChild(delBtn);
+
+    if (isNew) {
+      // Remove arriving class after animation
+      div.addEventListener('animationend', function() {
+        div.classList.remove('arriving');
+        div.style.transform = 'rotate(' + rot + 'deg)';
+      }, { once: true });
+
+      // Save the randomly-chosen position so reloads stay consistent
+      photosRef.child(key).update({ position: { left: left, top: top, rot: rot } });
+    }
+
+    // ── Dragging (mouse + touch via Pointer Events) ──
+    let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
+
+    div.addEventListener('pointerdown', function(e) {
+      dragging = true;
+      div.classList.add('dragging');
+      startX = e.clientX;
+      startY = e.clientY;
+      origLeft = parseFloat(div.style.left);
+      origTop  = parseFloat(div.style.top);
+      div.setPointerCapture(e.pointerId);
+    });
+
+    div.addEventListener('pointermove', function(e) {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      div.style.left = (origLeft + dx) + 'px';
+      div.style.top  = (origTop + dy) + 'px';
+    });
+
+    div.addEventListener('pointerup', function(e) {
+      if (!dragging) return;
+      dragging = false;
+      div.classList.remove('dragging');
+      const newLeft = parseFloat(div.style.left);
+      const newTop  = parseFloat(div.style.top);
+      photosRef.child(key).update({ position: { left: newLeft, top: newTop, rot: rot } });
+    });
+
+    wall.appendChild(div);
+  }
+</script>
+</body>
+</html>
